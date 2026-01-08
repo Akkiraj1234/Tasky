@@ -1,0 +1,9 @@
+{
+  "id": "Tasky",
+  "name": "Tasky (GUI)",
+  "version": "0.1.0",
+  "minAppVersion": "1.14.0",
+  "description": "Create and edit tasks via a GUI. Saves tasks as markdown in the current file, compatible with Dataview/Tasks/CardBoard.",
+  "author": "akki",
+  "isDesktopOnly": false
+}
