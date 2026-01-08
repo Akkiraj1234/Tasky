@@ -1,8 +1,9 @@
-import { QTTask, Priority, Status } from "./types";
+import type { QTTask, Priority, Status } from "./types";
 
 /**
  * Parses markdown content for checklist tasks and dataview-like inline fields.
- * Inline fields expected format:
+ *
+ * Supported format:
  * - [ ] Title #tag1 #tag2 🔺
  *   created:: 2026-01-08
  *   due:: 2026-01-10
@@ -12,51 +13,63 @@ import { QTTask, Priority, Status } from "./types";
  */
 
 function parseTasks(content: string): QTTask[] {
-  const lines = content.split("\n");
+  const lines = content.split(/\r?\n/);
   const tasks: QTTask[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const m = /^\s*-\s*\[([ xX\-])\]\s*(.*)$/.exec(line);
-    if (!m) continue;
+    const match = /^\s*-\s*\[([ xX\-])\]\s*(.*)$/.exec(line);
+    if (!match) continue;
 
-    const checkbox = `[${m[1]}]`;
-    const rest = m[2].trim();
+    const checkbox = `[${match[1]}]`;
+    const rest = match[2].trim();
 
-    // extract tags (#word) and priority emojis if any
-    const tagMatches = Array.from(rest.matchAll(/#([A-Za-z0-9\/\-_]+)/g));
-    const tags = tagMatches.map(t => `#${t[1]}`);
+    /* ---------- Tags ---------- */
+    const tagMatches = Array.from(rest.matchAll(/#([A-Za-z0-9/_-]+)/g));
+    const tags = Array.from(
+      new Set(tagMatches.map(t => `#${t[1]}`))
+    );
 
-    // remove inline tags and emojis to get title fuzzily
-    const title = rest
-      .replace(/#([A-Za-z0-9\/\-_]+)/g, "")
+    /* ---------- Title ---------- */
+    const titleCandidate = rest
+      .replace(/#([A-Za-z0-9/_-]+)/g, "")
       .replace(/🔺|⏫|⏬/g, "")
       .replace(/\s+#(todo|in-progress|done|cancelled)\b/gi, "")
       .trim();
 
-    // default status from checkbox
+    const title = titleCandidate || rest || "<untitled task>";
+
+    /* ---------- Status ---------- */
     let status: Status = checkbox.toLowerCase().includes("x") ? "done" : "todo";
     if (/in[-\s]*progress/i.test(rest)) status = "in-progress";
     if (/cancel/i.test(rest)) status = "cancelled";
 
-    // collect subsequent inline field lines
+    /* ---------- Inline fields ---------- */
     const meta: Record<string, string> = {};
     let j = i + 1;
+
     for (; j < lines.length; j++) {
-      const ml = lines[j];
-      const fieldMatch = /^\s{2,}([A-Za-z0-9_-]+)::\s*(.*)$/.exec(ml);
+      const metaLine = lines[j];
+
+      const fieldMatch = /^\s{2,}([A-Za-z0-9_-]+)::\s*(.*)$/.exec(metaLine);
       if (fieldMatch) {
-        meta[fieldMatch[1].toLowerCase()] = fieldMatch[2];
-      } else if (/^\s{2,}-\s+[A-Za-z0-9]/.test(ml)) {
-        // accept dash-lines as description fallback
-        const d = ml.replace(/^\s{2,}-\s*/, "");
-        meta["description"] = (meta["description"] ? meta["description"] + "\n" : "") + d;
-      } else {
-        break;
+        meta[fieldMatch[1].toLowerCase()] = fieldMatch[2].trim();
+        continue;
       }
+
+      // description bullet fallback
+      if (/^\s{2,}-\s+/.test(metaLine)) {
+        const d = metaLine.replace(/^\s{2,}-\s*/, "");
+        meta["description"] = meta["description"]
+          ? meta["description"] + "\n" + d
+          : d;
+        continue;
+      }
+
+      break;
     }
 
-    const task: QTTask = {
+    tasks.push({
       startLine: i,
       endLine: j - 1,
       checkbox,
@@ -68,9 +81,8 @@ function parseTasks(content: string): QTTask[] {
       priority: meta["priority"] as Priority | undefined,
       status,
       raw: line
-    };
+    });
 
-    tasks.push(task);
     i = j - 1;
   }
 
@@ -89,9 +101,22 @@ function serializeTask(task: {
 }): string {
   const checkbox = task.checkbox ?? "[ ]";
   const tagsPart = (task.tags ?? []).join(" ");
-  const priorityEmoji = task.priority === "High" ? "🔺" : task.priority === "Medium" ? "⏫" : task.priority === "Low" ? "⏬" : "";
-  const statusInline = task.status && task.status !== "todo" ? ` #${task.status}` : "";
-  const line = `- ${checkbox} ${task.title}${tagsPart ? " " + tagsPart : ""}${priorityEmoji ? " " + priorityEmoji : ""}${statusInline}`;
+
+  const priorityEmoji =
+    task.priority === "High" ? "🔺" :
+    task.priority === "Medium" ? "⏫" :
+    task.priority === "Low" ? "⏬" :
+    "";
+
+  const statusInline =
+    task.status && task.status !== "todo" ? ` #${task.status}` : "";
+
+  const firstLine =
+    `- ${checkbox} ${task.title}` +
+    (tagsPart ? ` ${tagsPart}` : "") +
+    (priorityEmoji ? ` ${priorityEmoji}` : "") +
+    statusInline;
+
   const meta: string[] = [];
   if (task.created) meta.push(`  created:: ${task.created}`);
   if (task.due) meta.push(`  due:: ${task.due}`);
@@ -99,7 +124,8 @@ function serializeTask(task: {
   if (task.status) meta.push(`  status:: ${task.status}`);
   if (task.description) meta.push(`  description:: ${task.description}`);
 
-  return [line, ...meta].join("\n");
+  return [firstLine, ...meta].join("\n");
 }
 
-export { parseTasks, serializeTask, QTTask as ParsedTask };
+export { parseTasks, serializeTask };
+export type { QTTask, Priority, Status };

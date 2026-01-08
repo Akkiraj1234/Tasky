@@ -24,9 +24,10 @@ const DEFAULT_SETTINGS: QuickTaskSettings = {
 export default class QuickTaskPlugin extends Plugin {
   settings: QuickTaskSettings = DEFAULT_SETTINGS;
 
-  async onload() {
+  async onload(): Promise<void> {
     await this.loadSettings();
 
+    // Ribbon icon toggles right sidebar view for the plugin
     this.addRibbonIcon("check", "Quick Task (open sidebar)", async () => {
       const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_QUICK_TASK);
       if (leaves.length) {
@@ -38,8 +39,10 @@ export default class QuickTaskPlugin extends Plugin {
       }
     });
 
+    // Register sidebar view
     this.registerView(VIEW_TYPE_QUICK_TASK, (leaf: WorkspaceLeaf) => new TaskView(leaf, this));
 
+    // Command: quick add via modal
     this.addCommand({
       id: "quick-task-add-modal",
       name: "Quick Task: Add task (modal)",
@@ -47,17 +50,22 @@ export default class QuickTaskPlugin extends Plugin {
         const file = this.app.workspace.getActiveFile();
         const defaults = this.getDefaultTagsForFile(file);
         new TaskModal(this.app, async (payload) => {
-          await this.insertTask(file, {
-            checkbox: "[ ]",
-            title: payload.title,
-            description: payload.description,
-            created: this.todayISO(),
-            due: payload.due,
-            tags: payload.tags,
-            priority: payload.priority,
-            status: payload.status
-          });
-          new Notice("Task added");
+          try {
+            await this.insertTask(file, {
+              checkbox: "[ ]",
+              title: payload.title,
+              description: payload.description,
+              created: this.todayISO(),
+              due: payload.due,
+              tags: payload.tags,
+              priority: payload.priority,
+              status: payload.status
+            });
+            new Notice("Task added");
+          } catch (e) {
+            console.error("Failed to insert task:", e);
+            new Notice("Failed to add task — check console");
+          }
         }, defaults).open();
       }
     });
@@ -65,15 +73,17 @@ export default class QuickTaskPlugin extends Plugin {
     this.addSettingTab(new QuickTaskSettingTab(this.app, this));
   }
 
-  onunload() {
+  onunload(): void {
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_QUICK_TASK);
   }
 
-  async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+  async loadSettings(): Promise<void> {
+    // loadData() may return undefined; merge with defaults
+    const loaded = (await this.loadData()) as Partial<QuickTaskSettings> | undefined;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded ?? {});
   }
 
-  async saveSettings() {
+  async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
   }
 
@@ -82,7 +92,7 @@ export default class QuickTaskPlugin extends Plugin {
     return this.settings.perFileDefaults[file.path] ?? [];
   }
 
-  async saveDefaultTagsForFile(file: TFile, tags: string[]) {
+  async saveDefaultTagsForFile(file: TFile, tags: string[]): Promise<void> {
     this.settings.perFileDefaults[file.path] = tags;
     await this.saveSettings();
   }
@@ -103,7 +113,7 @@ export default class QuickTaskPlugin extends Plugin {
     tags?: string[];
     priority?: string;
     status?: string;
-  }) {
+  }): Promise<void> {
     if (!file) {
       new Notice("Open a file first");
       return;
@@ -120,16 +130,22 @@ export default class QuickTaskPlugin extends Plugin {
       status: payload.status as any
     });
 
-    // Try to insert at editor cursor if active view matches file
+    // If active editor is editing this file, insert at cursor
     const mv = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (mv && mv.file && mv.file.path === file.path) {
       const editor = mv.editor;
       const pos = editor.getCursor();
       const txt = (pos.line === 0 && content.trim() === "") ? block + "\n" : "\n" + block + "\n";
       editor.replaceRange(txt, pos);
+      // editor buffer is updated; Obsidian will manage saving the file
     } else {
-      // append
-      await this.app.vault.modify(file, content + "\n\n" + block + "\n");
+      // fallback: append to end of file
+      try {
+        await this.app.vault.modify(file, content + "\n\n" + block + "\n");
+      } catch (e) {
+        console.error("vault.modify failed while appending task:", e);
+        new Notice("Failed to append task to file");
+      }
     }
   }
 
@@ -142,7 +158,7 @@ export default class QuickTaskPlugin extends Plugin {
     tags?: string[];
     priority?: string;
     status?: string;
-  }) {
+  }): Promise<void> {
     const content = await this.app.vault.read(file);
     const lines = content.split("\n");
     const newBlock = serializeTask({
@@ -159,20 +175,30 @@ export default class QuickTaskPlugin extends Plugin {
     const before = lines.slice(0, original.startLine).join("\n");
     const after = lines.slice(original.endLine + 1).join("\n");
     const newContent = [before, newBlock, after].filter(Boolean).join("\n");
-    await this.app.vault.modify(file, newContent);
+    try {
+      await this.app.vault.modify(file, newContent);
+    } catch (e) {
+      console.error("Failed to replace task:", e);
+      new Notice("Failed to update task");
+    }
   }
 
-  async deleteTask(file: TFile, task: QTTask) {
+  async deleteTask(file: TFile, task: QTTask): Promise<void> {
     const content = await this.app.vault.read(file);
     const lines = content.split("\n");
     const before = lines.slice(0, task.startLine).join("\n");
     const after = lines.slice(task.endLine + 1).join("\n");
     const newContent = [before, after].filter(Boolean).join("\n");
-    await this.app.vault.modify(file, newContent);
-    new Notice("Task deleted");
+    try {
+      await this.app.vault.modify(file, newContent);
+      new Notice("Task deleted");
+    } catch (e) {
+      console.error("Failed to delete task:", e);
+      new Notice("Failed to delete task");
+    }
   }
 
-  async toggleDone(file: TFile, task: QTTask) {
+  async toggleDone(file: TFile, task: QTTask): Promise<void> {
     const content = await this.app.vault.read(file);
     const lines = content.split("\n");
     const line = lines[task.startLine];
@@ -201,7 +227,12 @@ export default class QuickTaskPlugin extends Plugin {
       lines.splice(task.startLine + 2, 0, `  completed:: ${now}`);
     }
 
-    await this.app.vault.modify(file, lines.join("\n"));
+    try {
+      await this.app.vault.modify(file, lines.join("\n"));
+    } catch (e) {
+      console.error("Failed to toggle done:", e);
+      new Notice("Failed to update task status");
+    }
   }
 }
 
@@ -236,6 +267,7 @@ class QuickTaskSettingTab extends PluginSettingTab {
         text.onChange(async (v) => {
           const arr = v.split(/\s+/).filter(Boolean);
           await this.plugin.saveDefaultTagsForFile(file, arr);
+          new Notice("Saved default tags for file");
         });
       });
 
