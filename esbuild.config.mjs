@@ -13,10 +13,13 @@ esbuild.build({
   external: ["obsidian"],
   watch: watch && {
     onRebuild(error) {
-      if (error) console.error("❌ Build failed", error);
+      if (error) console.error("❌ Rebuild failed:", error);
       else console.log("✅ Rebuilt");
     }
   }
 }).then(() => {
   console.log("✅ Build complete");
+}).catch((err) => {
+  console.error(err);
+  process.exit(1);
 });

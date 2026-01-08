@@ -4,12 +4,13 @@ export type Status = "todo" | "in-progress" | "done" | "cancelled";
 export interface QTTask {
   startLine: number;
   endLine: number;
+  checkbox: string; // "[ ]" or "[x]"
   title: string;
   description?: string;
-  due?: string;
-  created?: string;
-  tags: string[];
+  created?: string; // YYYY-MM-DD
+  due?: string; // YYYY-MM-DD
+  tags: string[]; // ["#tag"]
   priority?: Priority;
   status?: Status;
-  checkbox: string;
+  raw?: string;
 }

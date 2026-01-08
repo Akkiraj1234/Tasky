@@ -8,9 +8,7 @@
     "skipLibCheck": true,
     "moduleResolution": "Node",
     "baseUrl": ".",
-    "paths": {
-      "@ui/*": ["src/ui/*"]
-    }
+    "outDir": "dist"
   },
   "include": ["src/**/*.ts"]
 }

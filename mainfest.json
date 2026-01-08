@@ -1,9 +1,9 @@
 {
-  "id": "Tasky",
-  "name": "Tasky (GUI)",
+  "id": "quick-task",
+  "name": "Quick Task (GUI)",
   "version": "0.1.0",
-  "minAppVersion": "1.14.0",
-  "description": "Create and edit tasks via a GUI. Saves tasks as markdown in the current file, compatible with Dataview/Tasks/CardBoard.",
+  "minAppVersion": "1.5.0",
+  "description": "GUI-based task manager for Obsidian. Stores tasks as markdown with Dataview-friendly inline fields.",
   "author": "akki",
   "isDesktopOnly": false
 }
